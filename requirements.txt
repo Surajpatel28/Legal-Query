@@ -1,0 +1,25 @@
+# Web Interface
+streamlit>=1.30.0
+
+# LangChain
+langchain>=0.1.0
+langchain-groq>=0.1.0
+langchain-huggingface>=0.0.1
+langchain-qdrant>=0.1.0
+langchain-core>=0.1.0
+
+# Vector Database
+qdrant-client>=1.7.0
+
+# Embeddings and ML
+sentence-transformers>=2.2.0
+
+# Environment
+python-dotenv>=1.0.0
+
+# Web Scraping (for notebooks)
+beautifulsoup4>=4.12.0
+requests>=2.31.0
+
+# Async support (for notebooks)
+aiohttp>=3.9.0
