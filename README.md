@@ -51,26 +51,12 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edit `.env` file with your credentials:
-```env
-QDRANT_CLOUD_URL=your_qdrant_cloud_url
-QDRANT_CLOUD_API_KEY=your_qdrant_api_key
-COLLECTION_NAME=bns_sections
-GROQ_MODEL_NAME=llama-3.1-70b-versatile
-GROQ_API_KEY=your_groq_api_key
-```
-
 ## Getting API Keys
 
 ### Qdrant Cloud
 1. Sign up at [Qdrant Cloud](https://cloud.qdrant.io/)
 2. Create a cluster (free tier available)
 3. Get your cluster URL and API key
-
-### Groq
-1. Sign up at [Groq](https://console.groq.com/)
-2. Generate an API key
-3. Free tier includes generous limits
 
 ## Usage
 
