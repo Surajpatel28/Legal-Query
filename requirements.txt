@@ -23,3 +23,11 @@ requests>=2.31.0
 
 # Async support (for notebooks)
 aiohttp>=3.9.0
+
+# Agent Support
+langgraph>=0.2.0
+
+# Tools
+langchain-community>=0.2.0
+wikipedia>=1.4.0
+langchain-tavily>=0.2.17

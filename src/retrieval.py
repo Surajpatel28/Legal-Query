@@ -4,7 +4,7 @@ from qdrant_client.models import Filter, FieldCondition, MatchValue
 from sentence_transformers import CrossEncoder
 from langchain_core.documents import Document
 from langchain_core.runnables import RunnableLambda
-
+from langchain_core.tools import tool
 
 reranker = CrossEncoder("BAAI/bge-reranker-base")
 
@@ -15,7 +15,6 @@ def extract_section(query: str):
         return match.group(1) if match else None
     except Exception:
         return None
-
 
 def retrieve(query, vectorstore, retriever) -> List[Document]:
     try:
@@ -73,3 +72,11 @@ def format_docs(docs: List[Document]) -> str:
     except Exception as e:
         print(f"Error formatting documents: {e}")
         return "Error formatting documents."
+
+def make_bns_tool(vectorstore, retriever):
+    @tool
+    def bns_search(query: str) -> str:
+        """Search the Bharatiya Nyaya Sanhita (BNS) knowledge base for relevant Indian criminal law sections. Use this first for any Indian law or BNS related question."""
+        docs = retrieve(query, vectorstore, retriever)
+        return format_docs(docs)
+    return bns_search

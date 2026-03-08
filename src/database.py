@@ -33,7 +33,7 @@ def get_embeddings():
         print(f"Error loading embeddings: {e}")
         raise
 
-
+ 
 def get_vectorstore(client, embedding):
     try:
         vectorstore = QdrantVectorStore(

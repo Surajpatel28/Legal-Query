@@ -36,11 +36,14 @@ if prompt := st.chat_input("Ask a legal question"):
                 role = "User" if msg["role"] == "user" else "Assistant"
                 chat_history += f"{role}: {msg['content']}\n\n"
             
-            response = st.write_stream(st.session_state.chain.stream({
-                "query": prompt,
-                "chat_history": chat_history
-            }))
+            with st.spinner("Researching..."):
+                response = st.session_state.chain({
+                    "query" : prompt,
+                    "chat_history" : chat_history
+                })
+            st.markdown(response)
             st.session_state.messages.append({"role": "assistant", "content": response})
+            
         except Exception as e:
             error_message = f"Error processing query: {str(e)}"
             st.error(error_message)
