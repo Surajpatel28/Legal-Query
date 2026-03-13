@@ -8,6 +8,8 @@ from langchain_community.document_compressors import FlashrankRerank
 from langchain_classic.retrievers.contextual_compression import ContextualCompressionRetriever
 
 logger = logging.getLogger(__name__)
+MIN_RELEVANCE_SCORE = 0.35
+FALLBACK_TOP_K = 2
 
 # Pre-compile regex patterns once at module level
 _RE_SECTION_KEYWORD = re.compile(r'\b(?:section|sec|s\.)\s*(\d{1,4})\b', re.IGNORECASE)
@@ -70,9 +72,21 @@ def retrieve(query, vectorstore, retriever, compression_retriever=None) -> List[
             if docs and str(docs[0].metadata.get('section')) == str(section):
                 return docs
             return []
-        
-        docs = compression_retriever.invoke(query)
-        return docs
+
+        # Retrieve scored candidates first, then keep only relevant evidence.
+        scored_docs = vectorstore.similarity_search_with_relevance_scores(query, k=8)
+        filtered_docs = [doc for doc, score in scored_docs if score >= MIN_RELEVANCE_SCORE]
+
+        # If strict filtering removes everything, keep a tiny fallback context.
+        if not filtered_docs and scored_docs:
+            filtered_docs = [doc for doc, _ in scored_docs[:FALLBACK_TOP_K]]
+
+        if not filtered_docs:
+            return []
+
+        # Rerank within filtered candidates to reduce unrelated sections in final context.
+        reranked_docs = _get_compressor().compress_documents(filtered_docs, query)
+        return reranked_docs if reranked_docs else filtered_docs[:FALLBACK_TOP_K]
     except Exception as e:
         logger.error(f"Error during retrieval: {e}")
         return []
