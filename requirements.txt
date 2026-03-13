@@ -13,6 +13,7 @@ qdrant-client>=1.7.0
 
 # Embeddings and ML
 sentence-transformers>=2.2.0
+flashrank>=0.2.10
 
 # Environment
 python-dotenv>=1.0.0

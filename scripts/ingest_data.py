@@ -15,7 +15,7 @@ from pathlib import Path
 from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from src.config import COLLECTION_NAME
-from src.database import get_qdrant_client, get_embeddings, get_vectorstore
+from src.database import get_qdrant_client, get_embeddings, get_vectorstore_with_deps
 from qdrant_client import models
 
 # Project paths
@@ -38,7 +38,7 @@ def scrape_single_url(url, section_type="BNS"):
         section = url.split('/')[-2]
         print(f"Scraping section {section}...")
 
-        response = requests.get(url)
+        response = requests.get(url, timeout=10)
         soup = BeautifulSoup(response.text, 'html.parser')
 
         p_elements = [p.get_text().strip() for p in soup.find_all('p') if p.get_text().strip()]
@@ -262,7 +262,7 @@ def run_full_pipeline(start=1, end=358):
     print("Initializing Qdrant client and embeddings...")
     client = get_qdrant_client()
     embedding = get_embeddings()
-    vectorstore = get_vectorstore(client, embedding)
+    vectorstore = get_vectorstore_with_deps(client, embedding)
     
     upload_to_qdrant(chunks, vectorstore, client)
     

@@ -1,5 +1,12 @@
+import logging
 import streamlit as st
 from src import initialize_rag_system
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 st.set_page_config(page_title="LegalQuery", page_icon="⚖️", layout="centered")
 
@@ -31,12 +38,12 @@ if prompt := st.chat_input("Ask a legal question"):
     
     with st.chat_message("assistant"):
         try:
-            chat_history = ""
-            for msg in st.session_state.messages[-6:-1]:
-                role = "User" if msg["role"] == "user" else "Assistant"
-                chat_history += f"{role}: {msg['content']}\n\n"
+            chat_history = "\n\n".join(
+                f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['content']}"
+                for msg in st.session_state.messages[-6:-1]
+            )
             
-            with st.spinner("Researching..."):
+            with st.spinner("Searching..."):
                 response = st.session_state.chain({
                     "query" : prompt,
                     "chat_history" : chat_history

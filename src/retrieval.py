@@ -1,23 +1,52 @@
 import re
+import logging
+from functools import lru_cache
 from typing import List
 from qdrant_client.models import Filter, FieldCondition, MatchValue
-from sentence_transformers import CrossEncoder
 from langchain_core.documents import Document
-from langchain_core.runnables import RunnableLambda
-from langchain_core.tools import tool
+from langchain_community.document_compressors import FlashrankRerank
+from langchain_classic.retrievers.contextual_compression import ContextualCompressionRetriever
 
-reranker = CrossEncoder("BAAI/bge-reranker-base")
+logger = logging.getLogger(__name__)
+
+# Pre-compile regex patterns once at module level
+_RE_SECTION_KEYWORD = re.compile(r'\b(?:section|sec|s\.)\s*(\d{1,4})\b', re.IGNORECASE)
+_RE_SECTION_BNS     = re.compile(r'\b(\d{1,4})\s+(?:of\s+)?bns\b', re.IGNORECASE)
+
+
+@lru_cache(maxsize=1)
+def _get_compressor():
+    """Lazy-load FlashrankRerank once and cache it."""
+    return FlashrankRerank(top_n=3)
+
+
+def build_compression_retriever(retriever):
+    return ContextualCompressionRetriever(
+        base_compressor=_get_compressor(),
+        base_retriever=retriever
+    )
 
 
 def extract_section(query: str):
-    try:
-        match = re.search(r'\b(?:section|sec|s\.)\s*(\d+)\b', query.lower())
-        return match.group(1) if match else None
-    except Exception:
-        return None
+    """Extract a BNS section number only when explicitly referenced."""
+    q = query.lower()
 
-def retrieve(query, vectorstore, retriever) -> List[Document]:
+    # Match "section 103", "sec 103", "s. 103", "s.103"
+    match = _RE_SECTION_KEYWORD.search(q)
+    if match:
+        return match.group(1)
+
+    # Match "103 of BNS", "103 bns"
+    match = _RE_SECTION_BNS.search(q)
+    if match:
+        return match.group(1)
+
+    return None
+
+def retrieve(query, vectorstore, retriever, compression_retriever=None) -> List[Document]:
     try:
+        compression_retriever = compression_retriever or build_compression_retriever(retriever)
+
         if isinstance(query, dict):
             query = query.get('query', str(query))
         
@@ -33,27 +62,19 @@ def retrieve(query, vectorstore, retriever) -> List[Document]:
                     must=[
                         FieldCondition(
                             key="metadata.section",
-                            match=MatchValue(value=section)
+                            match=MatchValue(value=str(section))
                         )
                     ]
                 )
             )
+            if docs and str(docs[0].metadata.get('section')) == str(section):
+                return docs
+            return []
         
-            if docs:
-                return docs 
-        
-        docs = retriever.invoke(query)
-        pairs = [[query, d.page_content] for d in docs]
-        scores = reranker.predict(pairs)
-
-        ranked = sorted(
-            zip(scores, docs),
-            key=lambda x: x[0],
-            reverse=True
-        )
-        return [d for _, d in ranked[:1]]
+        docs = compression_retriever.invoke(query)
+        return docs
     except Exception as e:
-        print(f"Error during retrieval: {e}")
+        logger.error(f"Error during retrieval: {e}")
         return []
 
 
@@ -70,13 +91,5 @@ def format_docs(docs: List[Document]) -> str:
         
         return "\n\n" + "="*50 + "\n\n".join(context_parts)
     except Exception as e:
-        print(f"Error formatting documents: {e}")
+        logger.error(f"Error formatting documents: {e}")
         return "Error formatting documents."
-
-def make_bns_tool(vectorstore, retriever):
-    @tool
-    def bns_search(query: str) -> str:
-        """Search the Bharatiya Nyaya Sanhita (BNS) knowledge base for relevant Indian criminal law sections. Use this first for any Indian law or BNS related question."""
-        docs = retrieve(query, vectorstore, retriever)
-        return format_docs(docs)
-    return bns_search
