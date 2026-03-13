@@ -35,7 +35,6 @@ def get_cached_response(query):
 
     # Search with normalized query and inspect a few nearest neighbors.
     results = vectorstore.similarity_search_with_score(normalized_query, k=3)
-
     if not results:
         return None
 

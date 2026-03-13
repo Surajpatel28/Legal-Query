@@ -3,143 +3,111 @@ import logging
 from langchain_groq import ChatGroq
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from langchain_community.tools import WikipediaQueryRun
+from langchain_community.utilities import WikipediaAPIWrapper
+
 from src.config import GROQ_MODEL_NAME, GROQ_API_KEY
 from src.retrieval import extract_section, format_docs
+from src.utils import load_prompt_template
 
 logger = logging.getLogger(__name__)
 
 
 @lru_cache(maxsize=1)
 def get_model():
-    try:
-        model = ChatGroq(
-            model=GROQ_MODEL_NAME,
-            api_key=GROQ_API_KEY,
-            temperature=0.2
-        )
-        return model
-    except Exception as e:
-        logger.error(f"Error initializing model: {e}")
-        raise
+    return ChatGroq(
+        model=GROQ_MODEL_NAME,
+        api_key=GROQ_API_KEY,
+        temperature=0.2
+    )
 
 
 @lru_cache(maxsize=1)
-def get_prompt():
-    prompt = PromptTemplate(
-    template="""
-    You are a legal information assistant specialized in the Bharatiya Nyaya Sanhita (BNS).
-
-    Your task is to answer a user's legal query **strictly using the retrieved context provided below**.
-
-    -----------------------------
-    RULES
-    -----------------------------
-    1. Only use information present in the retrieved context.
-    2. Do NOT use outside knowledge or assumptions.
-    3. If the retrieved context does not contain the relevant BNS section, respond with:
-    "The retrieved context does not contain information relevant to this query."
-    4. Only include BNS sections that are clearly related to the user's query.
-    5. Ignore any retrieved sections that are unrelated to the query.
-    6. Do NOT invent section numbers, punishments, or legal interpretations.
-
-    -----------------------------
-    USER QUERY
-    -----------------------------
-    {query}
-
-    -----------------------------
-    RETRIEVED CONTEXT
-    -----------------------------
-    {context}
-
-    -----------------------------
-    CHAT HISTORY
-    -----------------------------
-    {chat_history}
-
-    -----------------------------
-    OUTPUT FORMAT (STRICT)
-    -----------------------------
-
-    A. Relevant BNS Sections
-
-    List only sections clearly related to the query.
-
-    **Section <number> — <Title if available>**  
-    Short explanation derived from the retrieved context.
-
-    Repeat for each relevant section.
-
-    ---
-
-    B. Punishments
-
-    For each section listed above:
-
-    **Section <number> Punishment**
-
-    Explain the punishment exactly as described in the retrieved context.
-
-    If punishment details are missing in the context, write:
-
-    "Punishment details are not available in the retrieved context."
-
-    ---
-
-    C. Legal Guidance
-
-    Provide practical steps someone should follow in this situation.
-
-    Include Indian emergency contacts:
-
-    Police: 100  
-    Ambulance: 102  
-    National Emergency Helpline: 112
-
-    Guidance should remain general and informational, not legal representation.
-
-    """,
-    input_variables=["context", "query", "chat_history"]
+def get_prompt(path):
+    return PromptTemplate(
+        template=load_prompt_template(path)
     )
-    return prompt
+
+
+@lru_cache(maxsize=1)
+def get_wiki_tool():
+    return WikipediaQueryRun(
+        api_wrapper=WikipediaAPIWrapper(
+            top_k_results=1,
+            doc_content_chars_max=2000
+        )
+    )
+
 
 def create_rag_chain(retrieve_fn, cache_get_fn=None, cache_store_fn=None):
+
     model = get_model()
-    prompt = get_prompt()
     parser = StrOutputParser()
-    llm_chain = prompt | model | parser
-    
-    def run_chain(inputs: dict) -> str:
-        
+
+    rag_prompt = get_prompt("./prompt_templates/bns_prompt.txt")
+    router_prompt = get_prompt("./prompt_templates/router_prompt.txt")
+
+    rag_chain = rag_prompt | model | parser
+    router_chain = router_prompt | model | parser
+
+    wiki_tool = get_wiki_tool()
+
+    def run_chain(inputs: dict):
+
         query = inputs.get("query")
         chat_history = inputs.get("chat_history", "")
 
-        cached_response = None  
-        if cache_get_fn is not None:
-            cached_response = cache_get_fn(query)
+        #  CACHE 
+        if cache_get_fn:
+            cached = cache_get_fn(query)
+            if cached:
+                logger.info("CACHE HIT → %s", query)
+                return cached
 
-        if cached_response:
-            logger.info("CACHE HIT for query: %s", query)
-            return cached_response
+        logger.info("CACHE MISS → %s", query)
 
-        logger.info("CACHE MISS → running RAG for query: %s", query)
-        docs = retrieve_fn(query)
-        section = extract_section(query)
+        #  ROUTER 
+        route = router_chain.invoke({"query": query}).strip()
+        logger.info("ROUTER → %s", route)
 
-        if section and not docs:
-                return (
+        response = None
+
+        #  NONE 
+        if route == "NONE":
+            response = "This assistant only answers questions related to criminal law and Bharatiya Nyaya Sanhita."
+
+        #  WIKI 
+        elif route == "WIKI":
+            wiki_context = wiki_tool.run(query)
+
+            response = model.invoke(
+                f"User query:\n{query}\n\nExplain using this context:\n\n{wiki_context}"
+            ).content
+
+        #  BNS 
+        elif route == "BNS":
+
+            docs = retrieve_fn(query)
+            section = extract_section(query)
+
+            if section and not docs:
+                response = (
                     f"Section {section} does not exist in the Bharatiya Nyaya Sanhita (BNS). "
-                    "BNS replaced the Indian Penal Code (IPC) and renumbered many sections. "
-                    "Please try asking by topic instead, e.g. 'What is the BNS law on theft?'"
+                    "BNS replaced the Indian Penal Code (IPC). "
+                    "Try asking by topic instead."
                 )
-        context = format_docs(docs)
-        response =  llm_chain.invoke({
-            "context": context,
-            "query": query, 
-            "chat_history": chat_history
-            })
-        
-        if cache_store_fn is not None and response:
+
+            else:
+                context = format_docs(docs)
+
+                response = rag_chain.invoke({
+                    "context": context,
+                    "query": query,
+                    "chat_history": chat_history
+                })
+
+        #  CACHE STORE 
+        if cache_store_fn and response:
             cache_store_fn(query, response)
 
         return response

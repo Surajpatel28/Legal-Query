@@ -7,7 +7,6 @@ from src.caching import get_cached_response, store_cached_response
 
 logger = logging.getLogger(__name__)
 
-
 def initialize_rag_system():
     try:
         vectorstore = get_vectorstore()
